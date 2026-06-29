@@ -361,18 +361,37 @@ async function fetchRealStandings(){
   return{classified,thirds}
 }
 
-async function fetchKnockoutResults(round){
+async function fetchKnockoutResults(round,realStandings){
   var roundMap={r32:'Round of 32',r16:'Round of 16',qf:'Quarter-finals',sf:'Semi-finals',final:'Final'}
   var data=await apiCall('fixtures?league='+WC_LEAGUE+'&season='+WC_SEASON+'&round='+encodeURIComponent(roundMap[round])+'&status=FT')
   if(!data)return{}
   var results={}
-  data.forEach(function(f,i){
+  data.forEach(function(f){
     var ha=f.goals.home,hb=f.goals.away
     if(ha===null||hb===null)return
-    var id=round+'_'+i
-    var winner=f.teams.home.winner?teamObj(f.teams.home.name):teamObj(f.teams.away.name)
-    results[id]=winner
-    results[id+'_score']={a:String(ha),b:String(hb)}
+    var homeName=API_TEAM_MAP[f.teams.home.name]||f.teams.home.name
+    var awayName=API_TEAM_MAP[f.teams.away.name]||f.teams.away.name
+    var winnerName=f.teams.home.winner?homeName:awayName
+    // Buscar el id correcto en el bracket por nombre de equipos
+    var matchId=null
+    if(round==='r32'&&realStandings){
+      for(var idx=0;idx<ROUND_32_PAIRS.length;idx++){
+        var pair=ROUND_32_PAIRS[idx]
+        function getN(g,pos){
+          if(g==='3rd')return realStandings.thirds&&realStandings.thirds[pos]&&realStandings.thirds[pos].n
+          return realStandings.classified&&realStandings.classified[g]&&realStandings.classified[g][pos]&&realStandings.classified[g][pos].n
+        }
+        var n1=getN(pair[0],pair[1]),n2=getN(pair[2],pair[3])
+        if((n1===homeName&&n2===awayName)||(n1===awayName&&n2===homeName)){
+          matchId=round+'_'+idx
+          break
+        }
+      }
+    }
+    if(!matchId)return // no matcheó, ignorar
+    var winnerObj=teamObj(winnerName)
+    results[matchId]=winnerObj
+    results[matchId+'_score']={a:String(ha),b:String(hb)}
   })
   return results
 }
@@ -608,7 +627,7 @@ export default function App(){
     var koResults={}
     var rounds=['r32','r16','qf','sf','final']
     for(var i=0;i<rounds.length;i++){
-      var kr=await fetchKnockoutResults(rounds[i])
+      var kr=await fetchKnockoutResults(rounds[i],standings)
       Object.assign(koResults,kr)
     }
     var cur=await dbGetResults()
